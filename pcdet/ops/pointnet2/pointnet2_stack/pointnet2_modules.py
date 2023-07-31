@@ -397,7 +397,6 @@ class VectorPoolAggregationModule(nn.Module):
             f'the input channels ({C}) should be an integral multiple of num_reduced_channels({self.num_reduced_channels})'
 
         features = features.view(N, -1, self.num_reduced_channels).sum(dim=1)
-
         if self.local_aggregation_type in ['voxel_avg_pool', 'voxel_random_choice']:
             vector_features, point_cnt_of_grid = self.vector_pool_with_voxel_query(
                 xyz=xyz, xyz_batch_cnt=xyz_batch_cnt, features=features,

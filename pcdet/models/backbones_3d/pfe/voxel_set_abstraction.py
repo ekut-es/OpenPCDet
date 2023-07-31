@@ -6,6 +6,7 @@ import torch.nn as nn
 from ....ops.pointnet2.pointnet2_stack import pointnet2_modules as pointnet2_stack_modules
 from ....ops.pointnet2.pointnet2_stack import pointnet2_utils as pointnet2_stack_utils
 from ....utils import common_utils
+from ....ops.roiaware_pool3d import roiaware_pool3d_utils
 
 
 def bilinear_interpolate_torch(im, x, y):
@@ -136,7 +137,7 @@ class VoxelSetAbstraction(nn.Module):
         self.downsample_times_map = {}
         c_in = 0
         for src_name in self.model_cfg.FEATURES_SOURCE:
-            if src_name in ['bev', 'raw_points']:
+            if src_name in ['bev', 'raw_points', 'boxes']:
                 continue
             self.downsample_times_map[src_name] = SA_cfg[src_name].DOWNSAMPLE_FACTOR
 
@@ -164,6 +165,22 @@ class VoxelSetAbstraction(nn.Module):
             )
 
             c_in += cur_num_c_out
+
+        # -----------------------------------------------------------------------------------------------------------
+        num_box_features = 7
+        if 'boxes' in self.model_cfg.FEATURES_SOURCE: # add input channels for boxes in PFE
+            self.SA_boxes, cur_num_c_out = pointnet2_stack_modules.build_local_aggregation_module(
+                input_channels=num_box_features - 3, config=SA_cfg['boxes']
+            )
+
+            c_in += cur_num_c_out
+
+        # # -----------------------------------------------------------------------------------------------------------
+        #
+        # if self.model_cfg.POINT_SOURCE == 'boxes':# add input channels for BFE
+        #     c_in += 0#5 # w, h, l , Theta, class
+        #
+        # # -----------------------------------------------------------------------------------------------------------
 
         self.vsa_point_feature_fusion = nn.Sequential(
             nn.Linear(c_in, self.model_cfg.NUM_OUTPUT_FEATURES, bias=False),
@@ -224,6 +241,26 @@ class VoxelSetAbstraction(nn.Module):
         )
         return sampled_points
 
+    def coop_centric_sampling(self, roi_boxes, points):
+        """
+        Args:
+            roi_boxes: (M, 7 + C)
+            points: (N, 3)
+
+        Returns:
+            sampled_points: (N_out, 3)
+        """
+
+        point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(points.cpu(), roi_boxes.cpu()).numpy()
+        all_point_indices = np.any(point_indices, axis=0)
+        sampled_points = points[all_point_indices]
+
+        sampled_points = sector_fps(
+            points=sampled_points, num_sampled_points=self.model_cfg.NUM_KEYPOINTS,
+            num_sectors=self.model_cfg.SPC_SAMPLING.NUM_SECTORS
+        )
+        return sampled_points
+
     def get_sampled_points(self, batch_dict):
         """
         Args:
@@ -233,7 +270,7 @@ class VoxelSetAbstraction(nn.Module):
             keypoints: (N1 + N2 + ..., 4), where 4 indicates [bs_idx, x, y, z]
         """
         batch_size = batch_dict['batch_size']
-        if self.model_cfg.POINT_SOURCE == 'raw_points':
+        if self.model_cfg.POINT_SOURCE in ['raw_points', 'boxes']:
             src_points = batch_dict['points'][:, 1:4]
             batch_indices = batch_dict['points'][:, 0].long()
         elif self.model_cfg.POINT_SOURCE == 'voxel_centers':
@@ -264,6 +301,13 @@ class VoxelSetAbstraction(nn.Module):
 
             elif self.model_cfg.SAMPLE_METHOD == 'SPC':
                 cur_keypoints = self.sectorized_proposal_centric_sampling(
+                    roi_boxes=batch_dict['rois'][bs_idx], points=sampled_points[0]
+                )
+                bs_idxs = cur_keypoints.new_ones(cur_keypoints.shape[0]) * bs_idx
+                keypoints = torch.cat((bs_idxs[:, None], cur_keypoints), dim=1)
+
+            elif self.model_cfg.SAMPLE_METHOD == 'COOP':
+                cur_keypoints = self.coop_centric_sampling(
                     roi_boxes=batch_dict['rois'][bs_idx], points=sampled_points[0]
                 )
                 bs_idxs = cur_keypoints.new_ones(cur_keypoints.shape[0]) * bs_idx
@@ -314,13 +358,19 @@ class VoxelSetAbstraction(nn.Module):
                 )
                 point_features_list.append(point_features[bs_mask][valid_mask])
                 xyz_batch_cnt[bs_idx] = valid_mask.sum()
+            # fix for empty point feature list
+            if len(point_features_list[0]) == 0:
+                for bs_idx in range(batch_size):
+                    xyz_batch_cnt[bs_idx] = (xyz_bs_idxs == bs_idx).sum()
+            else:
+                valid_point_features = torch.cat(point_features_list, dim=0)
+                xyz = valid_point_features[:, 0:3]
+                xyz_features = valid_point_features[:, 3:] if xyz_features is not None else None
 
-            valid_point_features = torch.cat(point_features_list, dim=0)
-            xyz = valid_point_features[:, 0:3]
-            xyz_features = valid_point_features[:, 3:] if xyz_features is not None else None
         else:
             for bs_idx in range(batch_size):
                 xyz_batch_cnt[bs_idx] = (xyz_bs_idxs == bs_idx).sum()
+
 
         pooled_points, pooled_features = aggregate_func(
             xyz=xyz.contiguous(),
@@ -329,6 +379,7 @@ class VoxelSetAbstraction(nn.Module):
             new_xyz_batch_cnt=new_xyz_batch_cnt,
             features=xyz_features.contiguous(),
         )
+
         return pooled_features
 
     def forward(self, batch_dict):
@@ -349,9 +400,10 @@ class VoxelSetAbstraction(nn.Module):
             point_coords: (N, 4)
 
         """
-        keypoints = self.get_sampled_points(batch_dict)
-
         point_features_list = []
+
+        keypoints = self.get_sampled_points(batch_dict) # PFE and BFE keypoints
+
         if 'bev' in self.model_cfg.FEATURES_SOURCE:
             point_bev_features = self.interpolate_from_bev_features(
                 keypoints, batch_dict['spatial_features'], batch_dict['batch_size'],
@@ -368,7 +420,10 @@ class VoxelSetAbstraction(nn.Module):
 
         if 'raw_points' in self.model_cfg.FEATURES_SOURCE:
             raw_points = batch_dict['points']
-
+            if self.model_cfg.POINT_SOURCE == 'boxes':
+                rois = batch_dict['coop_boxes']
+            else:
+                rois = batch_dict.get('rois', None)
             pooled_features = self.aggregate_keypoint_features_from_one_source(
                 batch_size=batch_size, aggregate_func=self.SA_rawpoints,
                 xyz=raw_points[:, 1:4],
@@ -377,11 +432,43 @@ class VoxelSetAbstraction(nn.Module):
                 new_xyz=new_xyz, new_xyz_batch_cnt=new_xyz_batch_cnt,
                 filter_neighbors_with_roi=self.model_cfg.SA_LAYER['raw_points'].get('FILTER_NEIGHBOR_WITH_ROI', False),
                 radius_of_neighbor=self.model_cfg.SA_LAYER['raw_points'].get('RADIUS_OF_NEIGHBOR_WITH_ROI', None),
-                rois=batch_dict.get('rois', None)
+                rois=rois  # use coop boxes in BFE and region proposals in PFE
             )
             point_features_list.append(pooled_features)
 
+        # ----------------------------------------------------------------------------------------------------------
+        if 'boxes' in self.model_cfg.FEATURES_SOURCE:
+            if self.model_cfg.POINT_SOURCE == 'boxes':
+                rois = batch_dict['coop_boxes']
+            else:
+                rois = batch_dict.get('rois', None)
+            boxes = batch_dict['coop_boxes']
+            bs_idxs = torch.tensor([])
+            box_pos = torch.tensor([]).cuda()
+            box_features = torch.tensor([]).cuda()
+            for batch_idx in range(batch_size):
+                num_boxes = torch.count_nonzero(batch_dict['coop_ids'][batch_idx]).item()
+                bs_idxs = torch.cat((bs_idxs, torch.full([num_boxes], batch_idx)))
+                box_pos = torch.cat((box_pos, boxes[batch_idx, :num_boxes, :3])) # todo check this
+                box_features = torch.cat((box_features, torch.cat((boxes[batch_idx, :num_boxes, 3:], torch.reshape(batch_dict['coop_ids'][batch_idx], (-1, 1))), dim=1)))# todo check this
+            pooled_features = self.aggregate_keypoint_features_from_one_source(
+                batch_size=batch_size, aggregate_func=self.SA_boxes,
+                xyz=box_pos,
+                xyz_features=box_features,
+                xyz_bs_idxs=bs_idxs,
+                new_xyz=new_xyz, new_xyz_batch_cnt=new_xyz_batch_cnt,
+                filter_neighbors_with_roi=self.model_cfg.SA_LAYER['boxes'].get('FILTER_NEIGHBOR_WITH_ROI', False),
+                radius_of_neighbor=self.model_cfg.SA_LAYER['boxes'].get('RADIUS_OF_NEIGHBOR_WITH_ROI', None),
+                rois=rois
+            )
+            point_features_list.append(pooled_features)
+        # ----------------------------------------------------------------------------------------------------------
+
         for k, src_name in enumerate(self.SA_layer_names):
+            if self.model_cfg.POINT_SOURCE == 'boxes':
+                rois = batch_dict['coop_boxes']
+            else:
+                rois = batch_dict.get('rois', None)
             cur_coords = batch_dict['multi_scale_3d_features'][src_name].indices
             cur_features = batch_dict['multi_scale_3d_features'][src_name].features.contiguous()
 
@@ -396,15 +483,44 @@ class VoxelSetAbstraction(nn.Module):
                 new_xyz=new_xyz, new_xyz_batch_cnt=new_xyz_batch_cnt,
                 filter_neighbors_with_roi=self.model_cfg.SA_LAYER[src_name].get('FILTER_NEIGHBOR_WITH_ROI', False),
                 radius_of_neighbor=self.model_cfg.SA_LAYER[src_name].get('RADIUS_OF_NEIGHBOR_WITH_ROI', None),
-                rois=batch_dict.get('rois', None)
+                rois=rois
             )
+
+
 
             point_features_list.append(pooled_features)
 
         point_features = torch.cat(point_features_list, dim=-1)
 
-        batch_dict['point_features_before_fusion'] = point_features.view(-1, point_features.shape[-1])
-        point_features = self.vsa_point_feature_fusion(point_features.view(-1, point_features.shape[-1]))
+# --------------------------------------------------------------------------------------------------
+
+        # concatenate PFE and BFE keypoints/box_coords before fusion if BFE is enabled
+        if self.model_cfg.POINT_SOURCE == 'raw_points' and not self.model_cfg.USE_BFE: # fuse point features in PFE module
+            batch_dict['point_features_before_fusion'] = point_features.view(-1, point_features.shape[-1])
+            point_features = self.vsa_point_feature_fusion(point_features.view(-1, point_features.shape[-1]))
+        elif self.model_cfg.POINT_SOURCE == 'boxes': # concat bfe features and fuse then
+            cat_points = torch.tensor([]).cuda()
+            cat_point_features = torch.tensor([]).cuda()
+            for bs_idx in range(batch_size):
+                pfe_keypoints = batch_dict['point_coords']
+                pfe_point_features = batch_dict['point_features']
+
+                bs_pfe_mask = (pfe_keypoints[:, 0] == bs_idx)  # batch mask for PFE keypoints
+                bs_bfe_mask = (keypoints[:, 0] == bs_idx) # batch mask for BFE keypoints
+
+
+                cat_points = torch.cat((cat_points, keypoints[bs_bfe_mask], pfe_keypoints[bs_pfe_mask])) # concatenate PFE and BFE keypoints
+
+                pad_pfe_point_features = torch.cat((pfe_point_features[bs_pfe_mask], torch.zeros([pfe_point_features[bs_pfe_mask].shape[0], point_features.shape[1] - pfe_point_features.shape[1]]).cuda()), dim=1)
+                cat_point_features = torch.cat((cat_point_features, point_features[bs_bfe_mask], pad_pfe_point_features))
+
+            keypoints = cat_points
+            point_features = cat_point_features
+
+            batch_dict['point_features_before_fusion'] = point_features.view(-1, point_features.shape[-1])
+            point_features = self.vsa_point_feature_fusion(point_features.view(-1, point_features.shape[-1]))
+
+# --------------------------------------------------------------------------------------------------
 
         batch_dict['point_features'] = point_features  # (BxN, C)
         batch_dict['point_coords'] = keypoints  # (BxN, 4)
