@@ -3,7 +3,7 @@
 **For the original version of OpenPCDet please reffer to [`[OpenPCDet]`](https://github.com/open-mmlab/OpenPCDet)**
 
 # Collective PV-RCNN
-[`[Collective PV-RCNN]`]() is a fusion framework based on PV-RCNN++ to fuse collective detections within the local LiDAR-Based perception pipeline.
+[`[Collective PV-RCNN]`](https://www.embedded.uni-tuebingen.de/publications/teufel-gamerdinger-volk-bringmann-collective-data-fusion/) is a fusion framework based on PV-RCNN++ to fuse collective detections within the local LiDAR-Based perception pipeline.
 
 A fully-contained version of Collective PV-RCNN in OpenPCDet is not yet available, however Collective PV-RCNN can trained and tested using the [`[HANNAH]`](https://github.com/ekut-es/hannah/tree/pub/itsc23) framework.
 
@@ -26,10 +26,13 @@ A fully-contained version of Collective PV-RCNN with support of publically avail
 
 
 # OpenPCDet 
+
 <img src="docs/open_mmlab.png" align="right" width="30%">
+
 `OpenPCDet` is a clear, simple, self-contained open source project for LiDAR-based 3D object detection. 
 
-It is also the official code release of [`[PointRCNN]`](https://arxiv.org/abs/1812.04244), [`[Part-A2-Net]`](https://arxiv.org/abs/1907.03670), [`[PV-RCNN]`](https://arxiv.org/abs/1912.13192), [`[Voxel R-CNN]`](https://arxiv.org/abs/2012.15712), [`[PV-RCNN++]`](https://arxiv.org/abs/2102.00463) and [`[MPPNet]`](https://arxiv.org/abs/2205.05979). 
+It is also the official code release of [`[PointRCNN]`](https://arxiv.org/abs/1812.04244), [`[Part-A2-Net]`](https://arxiv.org/abs/1907.03670), [`[PV-RCNN]`](https://arxiv.org/abs/1912.13192),  
+[`[Voxel R-CNN]`](https://arxiv.org/abs/2012.15712), [`[PV-RCNN++]`](https://arxiv.org/abs/2102.00463) and [`[MPPNet]`](https://arxiv.org/abs/2205.05979). 
 
 **Highlights**: 
 * `OpenPCDet` has been updated to `v0.6.0` (Sep. 2022).
