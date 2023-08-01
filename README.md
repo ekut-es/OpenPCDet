@@ -1,7 +1,32 @@
+**This is a fork of OpenPCDet including Collective PV-RCNN**
+
+**For the original version of OpenPCDet please reffer to [`[OpenPCDet]`](https://github.com/open-mmlab/OpenPCDet)**
+
+# Collective PV-RCNN
+[`[Collective PV-RCNN]`]() is a fusion framework based on PV-RCNN++ to fuse collective detections within the local LiDAR-Based perception pipeline.
+
+A fully-contained version of Collective PV-RCNN in OpenPCDet is not yet available, however Collective PV-RCNN can trained and tested using the [`[HANNAH]`](https://github.com/ekut-es/hannah/tree/pub/itsc23) framework.
+
+The model and dataset configs are given in:  
+[`https://github.com/ekut-es/hannah/blob/pub/itsc23/hannah/conf/model/pv_rcnn_plus_plus.yaml`](https://github.com/ekut-es/hannah/blob/pub/itsc23/hannah/conf/model/pv_rcnn_plus_plus.yaml)  
+and  
+[`https://github.com/ekut-es/hannah/blob/pub/itsc23/hannah/conf/dataset/scope_lidar.yaml`](https://github.com/ekut-es/hannah/blob/pub/itsc23/hannah/conf/dataset/scope_lidar.yaml)  
+
+The dataset class and lightning module are given in:  
+[`https://github.com/ekut-es/hannah/blob/pub/itsc23/hannah/datasets/scope_lidar.py`](https://github.com/ekut-es/hannah/blob/pub/itsc23/hannah/datasets/scope_lidar.py)  
+and  
+[`https://github.com/ekut-es/hannah/blob/pub/itsc23/hannah/modules/lidar_detection.py`](https://github.com/ekut-es/hannah/blob/pub/itsc23/hannah/modules/lidar_detection.py)
+
+
+
+A fully-contained version of Collective PV-RCNN with support of publically available collective perception datasets will be available soon.  
+
+
+
+
+
+# OpenPCDet 
 <img src="docs/open_mmlab.png" align="right" width="30%">
-
-# OpenPCDet
-
 `OpenPCDet` is a clear, simple, self-contained open source project for LiDAR-based 3D object detection. 
 
 It is also the official code release of [`[PointRCNN]`](https://arxiv.org/abs/1812.04244), [`[Part-A2-Net]`](https://arxiv.org/abs/1907.03670), [`[PV-RCNN]`](https://arxiv.org/abs/1912.13192), [`[Voxel R-CNN]`](https://arxiv.org/abs/2012.15712), [`[PV-RCNN++]`](https://arxiv.org/abs/2102.00463) and [`[MPPNet]`](https://arxiv.org/abs/2205.05979). 
