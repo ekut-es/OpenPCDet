@@ -1,6 +1,6 @@
-**This is a fork of OpenPCDet including Collective PV-RCNN**
+**This is a fork of OpenPCDet, including Collective PV-RCNN**
 
-**For the original version of OpenPCDet please reffer to [`[OpenPCDet]`](https://github.com/open-mmlab/OpenPCDet)**
+**For the original version of OpenPCDet see [`[OpenPCDet]`](https://github.com/open-mmlab/OpenPCDet)**
 
 # Collective PV-RCNN
 [`[Collective PV-RCNN]`](https://www.embedded.uni-tuebingen.de/publications/teufel-gamerdinger-volk-bringmann-collective-data-fusion/) is a fusion framework based on PV-RCNN++ to fuse collective detections within the local LiDAR-Based perception pipeline.
@@ -19,7 +19,7 @@ and
 
 
 
-A fully-contained version of Collective PV-RCNN with support of publically available collective perception datasets will be available soon.  
+A fully-contained version of Collective PV-RCNN with support of publicly available collective perception datasets will be available soon.  
 
 
 
